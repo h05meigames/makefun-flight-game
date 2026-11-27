@@ -10,7 +10,9 @@ const DEG = Math.PI / 180;
 
 function panel(ctx, x, y, w, h) {
   ctx.save();
-  ctx.fillStyle = 'rgba(16,21,29,0.82)';
+  // Solid, not translucent: the bright sun used to show through the panel
+  // as a dark disc wherever it sat behind the HUD.
+  ctx.fillStyle = PALETTE.panel;
   ctx.strokeStyle = PALETTE.panelEdge;
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -138,7 +140,7 @@ function compassStrip(ctx, headingDeg) {
   const cx = FIELD.width / 2;
   const y = 54;
   ctx.save();
-  ctx.fillStyle = 'rgba(16,21,29,0.82)';
+  ctx.fillStyle = PALETTE.panel;
   ctx.beginPath();
   ctx.roundRect(cx - 190, y - 16, 380, 30, 8);
   ctx.fill();
@@ -273,7 +275,7 @@ export function drawTitle(ctx, missions, selected, best) {
     const y = 250 + index * 96;
     const chosen = index === selected;
     ctx.save();
-    ctx.fillStyle = chosen ? 'rgba(255,201,60,0.16)' : 'rgba(16,21,29,0.78)';
+    ctx.fillStyle = chosen ? 'rgba(255,201,60,0.16)' : PALETTE.panel;
     ctx.strokeStyle = chosen ? PALETTE.accent : PALETTE.panelEdge;
     ctx.lineWidth = chosen ? 2 : 1;
     ctx.beginPath();

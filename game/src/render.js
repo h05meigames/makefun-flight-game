@@ -150,13 +150,66 @@ function drawGround(ctx, world, cam, plane, heading) {
     }
   }
 
-  drawRunwayMarkings(ctx, world, cam, heading, plane);
+  drawRunway(ctx, world, cam, heading, plane);
 }
 
-function drawRunwayMarkings(ctx, world, cam, heading, plane) {
-  // Centreline dashes and threshold bars on any runway in view.
+function drawRunway(ctx, world, cam, heading, plane) {
+  // The runway is painted as its own projected quad: the ground strips
+  // sample the ground every 60 m, so a 28 m wide strip falls between
+  // samples and never appears — the strip used to be invisible, with only
+  // its number floating over the grass. Painting it explicitly keeps the
+  // runway readable from the title screen to the final approach.
+  // Everything here is wrapped in save/restore: the edge lines are sized
+  // from the projection scale, which is huge when the plane sits on the
+  // strip, and that lineWidth must never leak into the HUD drawn after.
+  ctx.save();
   for (const runway of [world.homeRunway, world.farRunway]) {
     if (plane.z > runway.z1 + 200 || plane.z + VIEW_DISTANCE < runway.z0) continue;
+    const half = world.runwayHalfWidth;
+    // Clamp the near edge to just ahead of the camera, so a strip the plane
+    // sits on still paints from the bottom of the screen.
+    const zNear = Math.max(runway.z0, cam.z + 10);
+    const zFar = runway.z1;
+    const a = project(cam, runway.x - half, 2, zNear, heading);
+    const b = project(cam, runway.x + half, 2, zNear, heading);
+    const c = project(cam, runway.x + half, 2, zFar, heading);
+    const d = project(cam, runway.x - half, 2, zFar, heading);
+    if (a && b && c && d) {
+      ctx.fillStyle = PALETTE.runway;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.lineTo(c.x, c.y);
+      ctx.lineTo(d.x, d.y);
+      ctx.closePath();
+      ctx.fill();
+      // Pale edge lines, so the strip reads against grass and sand.
+      ctx.strokeStyle = 'rgba(244,246,248,0.85)';
+      ctx.lineWidth = Math.max(1, Math.min(6, 1.4 * a.scale));
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(d.x, d.y);
+      ctx.moveTo(b.x, b.y);
+      ctx.lineTo(c.x, c.y);
+      ctx.stroke();
+      // Threshold bars at both ends.
+      ctx.fillStyle = PALETTE.runwayMark;
+      for (const zt of [runway.z0 + 12, runway.z1 - 12]) {
+        const t0 = project(cam, runway.x - half + 2, 2.4, zt, heading);
+        const t1 = project(cam, runway.x + half - 2, 2.4, zt, heading);
+        const t2 = project(cam, runway.x + half - 2, 2.4, zt + 10, heading);
+        const t3 = project(cam, runway.x - half + 2, 2.4, zt + 10, heading);
+        if (!t0 || !t1 || !t2 || !t3) continue;
+        ctx.beginPath();
+        ctx.moveTo(t0.x, t0.y);
+        ctx.lineTo(t1.x, t1.y);
+        ctx.lineTo(t2.x, t2.y);
+        ctx.lineTo(t3.x, t3.y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    // Centreline dashes and the runway number at the near threshold.
     ctx.fillStyle = PALETTE.runwayMark;
     for (let z = runway.z0 + 40; z < runway.z1 - 20; z += 90) {
       const p0 = project(cam, runway.x, 2.4, z, heading);
@@ -173,17 +226,24 @@ function drawRunwayMarkings(ctx, world, cam, heading, plane) {
     if (num && num.forward < 1500) {
       ctx.save();
       ctx.fillStyle = PALETTE.runwayMark;
-      ctx.font = `bold ${Math.max(10, 26 * num.scale)}px ${'system-ui, sans-serif'}`;
+      // Capped: the projection scale explodes as the plane reaches the
+      // threshold, and an uncapped number would fill the screen.
+      ctx.font = `bold ${Math.max(10, Math.min(56, 26 * num.scale))}px ${'system-ui, sans-serif'}`;
       ctx.textAlign = 'center';
       ctx.fillText(runway.number, num.x, num.y);
       ctx.restore();
     }
   }
+  ctx.restore();
 }
 
 function drawRing(ctx, cam, ring, heading, next) {
   const p = project(cam, ring.x, ring.y, ring.z, heading);
   if (!p || p.forward > VIEW_DISTANCE) return;
+  // Flying through a hoop puts it on the camera plane, where its radius
+  // explodes into a giant circle over the whole screen (it used to fill the
+  // end screen). Skip hoops closer than the nose.
+  if (p.forward < 50) return;
   const radius = 20 * p.scale;
   if (radius < 3) return;
   ctx.save();
@@ -236,13 +296,15 @@ function drawPlane(ctx, plane, time) {
   // Canvas rotation is clockwise for positive angles, and banking right is
   // a clockwise roll seen from behind, so the roll follows the bank sign.
   ctx.rotate(plane.bank * 0.9);
-  const scale = plane.airborne ? 1 : 0.92;
+  // A touch larger than round 1, so the Skylark reads at a glance against
+  // bright fields and sea instead of dissolving into them.
+  const scale = plane.airborne ? 1.12 : 1.02;
 
   // Soft shadow on the ground far below is skipped: the plane is the camera's
   // subject, drawn crisp against the sky and sea.
   ctx.scale(scale, scale);
 
-  // Wings.
+  // Wings, with a thin grey outline so they hold against bright grass.
   ctx.fillStyle = '#f2f5f7';
   ctx.beginPath();
   ctx.moveTo(-118, 6);
@@ -253,6 +315,9 @@ function drawPlane(ctx, plane, time) {
   ctx.lineTo(-104, 16);
   ctx.closePath();
   ctx.fill();
+  ctx.strokeStyle = '#8fa0ae';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
   ctx.fillStyle = '#d63c2f';
   ctx.fillRect(-118, 6, 26, 7);
   ctx.fillRect(92, 6, 26, 7);

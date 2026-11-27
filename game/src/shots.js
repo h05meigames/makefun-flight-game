@@ -10,7 +10,7 @@ import { createPlane, stepFlight } from './physics.js';
 
 const START_SECONDS = 6;
 const PLAY_SECONDS = 24;
-const LANDING_SECONDS = 100;
+const LANDING_SECONDS = 150;
 
 /** Steer toward a world point, gently, the way a careful pilot would. */
 function steerToward(plane, target) {
@@ -37,19 +37,38 @@ function steerToward(plane, target) {
 function autopilotStep(plane, world, mission, mode) {
   let target;
   if (mode === 'landing') {
-    // Stay high over the mountain isle, then a gentle descent onto the strip.
+    // Final approach on a steady glide slope, aiming at a point that stays
+    // ahead of the nose: aiming at a fixed point used to make the plane
+    // orbit the runway centre instead of flying down it, and the old
+    // "55 m flat" target kept the plane barrelling in high and fast.
+    const z0 = world.farRunway.z0;
     const cruise = Math.max(60, 300 - Math.max(0, plane.z - 6000) * 0.09);
-    target = { x: 0, y: cruise, z: world.farRunway.z0 + 260 };
-    if (plane.z > world.farRunway.z0 - 900) target = { x: 0, y: 55, z: world.farRunway.z0 + 260 };
+    let y = cruise;
+    let tz = z0 + 260;
+    if (plane.z > z0 - 1500) {
+      // 80 m at 1500 m out, easing to 20 m over the threshold, then a
+      // gentle flare that puts the wheels down a third of the way along.
+      // The flare target sits below the strip: a proportional controller
+      // only ever approaches a fixed altitude, so aiming at the surface
+      // itself leaves the plane floating a few metres up past the end.
+      y = plane.z < z0
+        ? 20 + (z0 - plane.z) * 0.04
+        : -6;
+      tz = Math.max(z0 + 260, plane.z + 800);
+    }
+    target = { x: 0, y, z: tz };
   } else {
     const ring = world.rings.find((r) => !r.passed);
     target = ring ?? { x: 0, y: 160, z: world.farRunway.z0 + 260 };
   }
   const steer = steerToward(plane, target);
   // Throttle discipline: cruise at 70%, ease off near a ring so the turn
-  // tightens and the hoop is met, not overshot.
+  // tightens and the hoop is met, not overshot; on final, step down to
+  // 25% so the touchdown speed is under the safe 55 m/s.
   const dist = Math.hypot(target.x - plane.x, target.y - plane.y, target.z - plane.z);
-  const wantThrottle = mode === 'landing' ? 0.7 : (dist < 600 ? 0.45 : 0.7);
+  const wantThrottle = mode === 'landing'
+    ? (dist < 1200 ? 0.25 : dist < 2500 ? 0.45 : 0.7)
+    : (dist < 600 ? 0.45 : 0.7);
   const throttleDelta = plane.throttle < wantThrottle - 0.02 ? 1 : (plane.throttle > wantThrottle + 0.02 ? -1 : 0);
   return stepFlight(plane, world, mission, steer, throttleDelta, STEP);
 }
@@ -61,7 +80,10 @@ function autopilotStep(plane, world, mission, mode) {
 export function stageShot(name, game) {
   const { world } = game;
   world.reset();
-  const mission = createMission(MISSIONS[0]);
+  // The landing shot flies the Island Landing sortie, so its HUD reads
+  // "ISLAND LANDING — Land on North Isle" and the pointer aims at the far
+  // strip, instead of a Ring Run HUD over a landing approach.
+  const mission = createMission(name === 'landing' ? MISSIONS[1] : MISSIONS[0]);
   game.mission = mission;
   const plane = createPlane();
   game.plane = plane;
